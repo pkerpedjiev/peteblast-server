@@ -3,14 +3,18 @@ import logging
 import os
 import os.path as op
 import sys
-from flask import Flask
 
+from flask import Flask
+from flask import jsonify
+from flask import request
 
 import collections as col
 from io import StringIO
 from Bio import SeqIO
 import mmap
 import sqlite3
+
+from flask_cors import CORS
 
 DEFAULT_MINIMIZER_K = 5
 DEFAULT_MINIMIZER_W = 10
@@ -63,12 +67,19 @@ def kmer_ix_start_length(kmer):
 
     return row
 
-def search(query, kmer_ix_list, results_frac=0.5):    
-    mins = sorted(minimizers(query, 5, 10),
+def search(query, kmer_ix_list, results_frac=0.5):
+    mins = [m for m in minimizers(query, 5, 10) if kmer_ix_start_length(m)]
+    mins = sorted(mins,
         key=lambda x: kmer_ix_start_length(x)[1])
     seqs_found = col.defaultdict(int)
-    
-    for i, minimizer in enumerate(mins[:int(len(mins)*results_frac)]):
+    MIN_TO_CHECK = 10
+    num_to_check = max(
+        int(len(mins)*results_frac),
+        MIN_TO_CHECK
+    )
+
+    for i, minimizer in enumerate(mins[:num_to_check]):
+        print("minimizer:", minimizer)
         (ix_start, ixs_length) = kmer_ix_start_length(minimizer)
         ix_end = ix_start + ixs_length
         #print("minimizer", minimizer, ix_start, ix_end)
@@ -85,7 +96,6 @@ def get_offset(index):
     conn = sqlite3.connect(
         op.join(os.environ['BLAST_INDEX_LOCATION'],
             'fa.sqlite'))
-    print("index:", index)
     c = conn.cursor()
     c.execute('SELECT offset from offsets where ix == {};'.format(index))
     row = c.fetchone()
@@ -108,9 +118,6 @@ def get_sequence_function(filename):
             start = get_offset(number)
             end = get_offset(number+1)
 
-            print("start:", start, "end:", end)
-
-
             # print('start:', start, 'end:', end, 'mm:', len(mm))
             # print('mm', mm[start:end])
             record = list(SeqIO.parse(StringIO(mm[start:end].decode('ascii')), "fasta"))[0]
@@ -124,6 +131,8 @@ get_sequence = get_sequence_function(
 def create_app(test_config=None):
     """Create and configure an instance of the Flask application."""
     app = Flask(__name__, instance_relative_config=True)
+    CORS(app)
+
     app.config.from_mapping(
         # a default secret that should be overridden by instance config
         SECRET_KEY="dev",
@@ -154,23 +163,32 @@ def create_app(test_config=None):
     kmer_ix_list = h5py.File(kmer_ix_list_filename, 'r')['ixs']
 
 
-    @app.route("/hello")
+    @app.route("/hello", methods=['POST'])
     def hello():
-        query = 'MASTQNIVEEVQKMLDTYDTNKDGEITKAEAV'
+        # query = 'MASTQNIVEEVQKMLDTYDTNKDGEITKAEAV'
+        query = request.get_json()['searchString'];
+
+        print("request_json", request.get_json())
         results = search(query, kmer_ix_list)
-        print("res", results)
         ssw = StripedSmithWaterman(query,
             protein=True, substitution_matrix=subst_mat)
 
-        for res in results:
+        results_out = []
+        print("results:", results[:10])
+
+        for res in results[:20]:
             seq = get_sequence(res[0])
 
             desc = seq.description
             sequence = str(seq.seq)
             alignment = ssw(sequence)
 
-            print("alignment", alignment)
-        print("seq:", seq)
-        return "Hello, World! " + os.environ['BLAST_INDEX_LOCATION']
+            results_out += [{
+                'description': seq.description,
+                'aligned_query': alignment.aligned_query_sequence,
+                'aligned_target': alignment.aligned_target_sequence,
+                'score': int( alignment.optimal_alignment_score)
+            }]
 
+        return jsonify(results_out)
     return app
