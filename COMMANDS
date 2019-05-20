@@ -1,0 +1,1 @@
+curl -H "Content-Type: application/json" --request POST --data '{ "searchString": "WSSWHKEDSIHVGVRCIEMLIESTGMVSLHRQNAGVVGQDSETIELAPEY" }' localhost:5000/hello

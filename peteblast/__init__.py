@@ -174,9 +174,9 @@ def create_app(test_config=None):
             protein=True, substitution_matrix=subst_mat)
 
         results_out = []
-        print("results:", results[:10])
+        print(f"len(results): {len(results)} results: {results[:50]}")
 
-        for res in results[:20]:
+        for res in results[:50]:
             seq = get_sequence(res[0])
 
             desc = seq.description
@@ -187,8 +187,11 @@ def create_app(test_config=None):
                 'description': seq.description,
                 'aligned_query': alignment.aligned_query_sequence,
                 'aligned_target': alignment.aligned_target_sequence,
-                'score': int( alignment.optimal_alignment_score)
+                'target_seq': str(seq.seq),
+                'target_description': str(seq.description),
+                'score': int( alignment.optimal_alignment_score),
+                'minimizer_matches': res[1]
             }]
 
-        return jsonify(results_out)
+        return jsonify({ "results": results_out})
     return app
