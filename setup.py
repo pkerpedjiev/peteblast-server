@@ -7,7 +7,7 @@ with io.open("README.rst", "rt", encoding="utf8") as f:
 
 setup(
     name="peteblast",
-    version="0.1.0",
+    version="0.1.1",
     maintainer="Peter Kerpedjiev",
     maintainer_email="pkerpedjiev@gmail.com",
     description="An extra fast BLAST server.",
