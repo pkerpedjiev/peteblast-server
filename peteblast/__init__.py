@@ -16,6 +16,8 @@ import sqlite3
 
 from flask_cors import CORS
 
+__version__ = "0.1.0"
+
 DEFAULT_MINIMIZER_K = 5
 DEFAULT_MINIMIZER_W = 10
 
@@ -78,18 +80,18 @@ def search(query, kmer_ix_list, results_frac=0.5):
         MIN_TO_CHECK
     )
 
-    for i, minimizer in enumerate(mins[:num_to_check]):
-        print("minimizer:", minimizer)
+    for _, minimizer in enumerate(mins[:num_to_check]):
+        # print("minimizer:", minimizer)
         (ix_start, ixs_length) = kmer_ix_start_length(minimizer)
         ix_end = ix_start + ixs_length
-        #print("minimizer", minimizer, ix_start, ix_end)
+        # print("minimizer", minimizer, ix_start, ix_end)
 
         seqs = kmer_ix_list[ix_start:ix_end]
-        #print("seqs:", seqs)
+        # print("seqs:", seqs)
         for seq in seqs:
             seqs_found[seq] += 1
             
-    #print(seqs_found)
+    # print(seqs_found)
     return sorted(seqs_found.items(), key=lambda x: -x[1])
 
 def get_offset(index):
@@ -163,18 +165,17 @@ def create_app(test_config=None):
     kmer_ix_list = h5py.File(kmer_ix_list_filename, 'r')['ixs']
 
 
-    @app.route("/hello", methods=['POST'])
+    @app.route("/api/v1/search", methods=['POST'])
     def hello():
         # query = 'MASTQNIVEEVQKMLDTYDTNKDGEITKAEAV'
         query = request.get_json()['searchString'];
 
-        print("request_json", request.get_json())
+        # print("request_json", request.get_json())
         results = search(query, kmer_ix_list)
         ssw = StripedSmithWaterman(query,
             protein=True, substitution_matrix=subst_mat)
 
         results_out = []
-        print(f"len(results): {len(results)} results: {results[:50]}")
 
         for res in results[:50]:
             seq = get_sequence(res[0])
@@ -195,3 +196,5 @@ def create_app(test_config=None):
 
         return jsonify({ "results": results_out})
     return app
+    
+app = create_app()
