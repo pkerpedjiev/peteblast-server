@@ -1,2 +1,6 @@
 flask-cors
 uwsgi
+h5py
+biopython
+numpy
+scikit-bio
