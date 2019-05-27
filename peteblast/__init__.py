@@ -165,7 +165,7 @@ def create_app(test_config=None):
     kmer_ix_list = h5py.File(kmer_ix_list_filename, 'r')['ixs']
 
 
-    @app.route("/api/v1/search", methods=['POST'])
+    @app.route("/api/v1/search/", methods=['POST'])
     def hello():
         # query = 'MASTQNIVEEVQKMLDTYDTNKDGEITKAEAV'
         query = request.get_json()['searchString'];
