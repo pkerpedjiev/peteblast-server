@@ -69,29 +69,30 @@ def kmer_ix_start_length(kmer):
 
     return row
 
-def search(query, kmer_ix_list, results_frac=0.5):
-    mins = [m for m in minimizers(query, 5, 10) if kmer_ix_start_length(m)]
-    mins = sorted(mins,
-        key=lambda x: kmer_ix_start_length(x)[1])
+def search(query, results_frac=0.5):
+    from elasticsearch import Elasticsearch
+    es = Elasticsearch()
+    mins = [m for m in minimizers(query, 5, 10)]
+    query = {
+        "_source": ["id", "num_seqs"],
+        "query": {"bool": {"should": [{"match": {"id": minimizer}} for minimizer in mins]}},
+    }
+    res = sorted(
+        [h["_source"] for h in es.search(index="minimizers", body=query)["hits"]["hits"]],
+        key=lambda x: x["num_seqs"],
+    )
+    mins = [r["id"] for r in res]
     seqs_found = col.defaultdict(int)
     MIN_TO_CHECK = 10
-    num_to_check = max(
-        int(len(mins)*results_frac),
-        MIN_TO_CHECK
-    )
-
+    num_to_check = max(int(len(mins) * results_frac), MIN_TO_CHECK)
     for _, minimizer in enumerate(mins[:num_to_check]):
         # print("minimizer:", minimizer)
-        (ix_start, ixs_length) = kmer_ix_start_length(minimizer)
-        ix_end = ix_start + ixs_length
-        # print("minimizer", minimizer, ix_start, ix_end)
-
-        seqs = kmer_ix_list[ix_start:ix_end]
+        res = es.get(index="minimizers", id=minimizer)
+        seqs = res["_source"]["seqs"]
+        # print("seqs:", seqs)
         # print("seqs:", seqs)
         for seq in seqs:
             seqs_found[seq] += 1
-            
-    # print(seqs_found)
     return sorted(seqs_found.items(), key=lambda x: -x[1])
 
 def get_offset(index):
@@ -126,9 +127,9 @@ def get_sequence_function(filename):
             return record
         return get_sequence
 
-get_sequence = get_sequence_function(
-    op.join(os.environ['BLAST_INDEX_LOCATION'],
-        'seq.fa'))
+# get_sequence = get_sequence_function(
+#     op.join(os.environ['BLAST_INDEX_LOCATION'],
+#         'seq.fa'))
 
 def create_app(test_config=None):
     """Create and configure an instance of the Flask application."""
