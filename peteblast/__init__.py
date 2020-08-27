@@ -22,6 +22,8 @@ DEFAULT_MINIMIZER_K = 5
 DEFAULT_MINIMIZER_W = 10
 
 from skbio.alignment import StripedSmithWaterman
+from elasticsearch import Elasticsearch
+es = Elasticsearch(retry_on_timeout=True)
 
 def calc_subst_mat():
     from Bio.SubsMat.MatrixInfo import blosum62
@@ -59,73 +61,53 @@ def minimizers(sequence, k, w):
         minimizers += [minimizer]
     return set(minimizers)
 
-def kmer_ix_start_length(kmer):
-    conn = sqlite3.connect(
-        op.join(os.environ['BLAST_INDEX_LOCATION'],
-            'fa.sqlite'))
-    cursor = conn.cursor()
-    cursor.execute(f'SELECT offset, length FROM kmer_index_offsets WHERE kmer="{kmer}"')
-    row = cursor.fetchone()
-
-    return row
-
-def search(query, results_frac=0.5):
-    from elasticsearch import Elasticsearch
-    es = Elasticsearch()
-    mins = [m for m in minimizers(query, 5, 10)]
-    query = {
-        "_source": ["id", "num_seqs"],
-        "query": {"bool": {"should": [{"match": {"id": minimizer}} for minimizer in mins]}},
-    }
-    res = sorted(
-        [h["_source"] for h in es.search(index="minimizers", body=query)["hits"]["hits"]],
-        key=lambda x: x["num_seqs"],
-    )
-    mins = [r["id"] for r in res]
-    seqs_found = col.defaultdict(int)
-    MIN_TO_CHECK = 10
-    num_to_check = max(int(len(mins) * results_frac), MIN_TO_CHECK)
-    for _, minimizer in enumerate(mins[:num_to_check]):
-        # print("minimizer:", minimizer)
-        res = es.get(index="minimizers", id=minimizer)
-        seqs = res["_source"]["seqs"]
-        # print("seqs:", seqs)
-        # print("seqs:", seqs)
-        for seq in seqs:
-            seqs_found[seq] += 1
-    return sorted(seqs_found.items(), key=lambda x: -x[1])
-
-def get_offset(index):
-    conn = sqlite3.connect(
-        op.join(os.environ['BLAST_INDEX_LOCATION'],
-            'fa.sqlite'))
-    c = conn.cursor()
-    c.execute('SELECT offset from offsets where ix == {};'.format(index))
-    row = c.fetchone()
-    return row[0]
-
-def get_sequence_function(filename):
-    '''
-    Obtain the nth sequence from a fasta file
+def results(query, max_results=30):    
+#     print("query:", query)
+#     t1 = time.time()
+#     id_counts = search(query)
+#     t2 = time.time()
     
-    Paramseters
-    -----------
-    filename: str
-        The filename of the fasta file
-    '''
-    with open(filename, 'r+') as f:
-        mm = mmap.mmap(f.fileno(), 0)
-        # subtract one because offsets are 0-based and the input parameter
-        # is one-based
-        def get_sequence(number):
-            start = get_offset(number)
-            end = get_offset(number+1)
-
-            # print('start:', start, 'end:', end, 'mm:', len(mm))
-            # print('mm', mm[start:end])
-            record = list(SeqIO.parse(StringIO(mm[start:end].decode('ascii')), "fasta"))[0]
-            return record
-        return get_sequence
+#     print("time:", t2 - t1)
+    mins = minimizers(query, k=5, w=10)
+    es_query = {
+        "query": {
+            "bool": {
+                "should": 
+                    [{'match':{ "mins": m}} for m in mins]
+                
+            }
+        }
+    }
+    
+    res = es.search(index='seqs', body=es_query)
+    ssw = StripedSmithWaterman(query, protein=True, substitution_matrix=subst_mat)
+    results_out = []
+    for hit in res['hits']['hits'][:max_results]:
+        seq = hit['_source']
+#         print("seq", seq)
+        desc = seq['description']
+        sequence = str(seq['seq'])
+        alignment = ssw(sequence)
+        match = 0
+        total = 0
+        for q, t in zip(alignment.aligned_query_sequence, alignment.aligned_target_sequence):
+            if q == "-" or t == "-":
+                continue
+            if q == t:
+                match += 1
+            total += 1
+        identity = match / total
+        results_out += [
+            {
+                "description": seq['description'],
+                "aligned_query": alignment.aligned_query_sequence,
+                "aligned_target": alignment.aligned_target_sequence,
+                "target_seq": str(seq['seq']),
+                "score": int(alignment.optimal_alignment_score),
+                "identity": "{:.2f}".format(identity),
+            }
+        ]
+    return results_out
 
 # get_sequence = get_sequence_function(
 #     op.join(os.environ['BLAST_INDEX_LOCATION'],
@@ -156,15 +138,6 @@ def create_app(test_config=None):
     except OSError:
         pass
 
-    if 'BLAST_INDEX_LOCATION' not in os.environ:
-        logging.critical("BLAST_INDEX_LOCATION needs to be defined as an environment variable")
-        return None
-
-    BIL = os.environ['BLAST_INDEX_LOCATION']
-
-    kmer_ix_list_filename = op.join(BIL, 'sorted.merged.h5')
-    kmer_ix_list = h5py.File(kmer_ix_list_filename, 'r')['ixs']
-
 
     @app.route("/api/v1/search/", methods=['POST'])
     def hello():
@@ -172,28 +145,7 @@ def create_app(test_config=None):
         query = request.get_json()['searchString'];
 
         # print("request_json", request.get_json())
-        results = search(query, kmer_ix_list)
-        ssw = StripedSmithWaterman(query,
-            protein=True, substitution_matrix=subst_mat)
-
-        results_out = []
-
-        for res in results[:50]:
-            seq = get_sequence(res[0])
-
-            desc = seq.description
-            sequence = str(seq.seq)
-            alignment = ssw(sequence)
-
-            results_out += [{
-                'description': seq.description,
-                'aligned_query': alignment.aligned_query_sequence,
-                'aligned_target': alignment.aligned_target_sequence,
-                'target_seq': str(seq.seq),
-                'target_description': str(seq.description),
-                'score': int( alignment.optimal_alignment_score),
-                'minimizer_matches': res[1]
-            }]
+        results_out = results(query)
 
         return jsonify({ "results": results_out})
     return app
