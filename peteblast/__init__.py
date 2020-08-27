@@ -16,7 +16,7 @@ import sqlite3
 
 from flask_cors import CORS
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 DEFAULT_MINIMIZER_K = 5
 DEFAULT_MINIMIZER_W = 10

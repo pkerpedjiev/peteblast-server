@@ -4,7 +4,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="peteblast",
-    version="0.1.1",
+    version="0.2.0",
     maintainer="Peter Kerpedjiev",
     maintainer_email="pkerpedjiev@gmail.com",
     description="An extra fast BLAST server.",
